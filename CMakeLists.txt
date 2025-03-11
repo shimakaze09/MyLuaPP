@@ -9,7 +9,7 @@ INIT_MYCMAKE()
 INIT_PROJECT()
 
 ADD_DEP(MyLua 0.1.0)
-ADD_DEP(MySRefl 0.4.1)
+ADD_DEP(MySRefl 0.4.3)
 ADD_DEP(MyTemplate 0.4.6)
 
 ADD_SUB_DIRS_REC(src)
