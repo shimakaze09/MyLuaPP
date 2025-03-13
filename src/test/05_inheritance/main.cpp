@@ -7,24 +7,26 @@
 using namespace My::MySRefl;
 using namespace std;
 
+template <typename T>
 struct A {
-  float a;
+  T a;
 };
-struct B : A {
+struct B : A<bool> {
   float b;
 };
 
-template <>
-struct My::MySRefl::TypeInfo<A> : My::MySRefl::TypeInfoBase<A> {
+template <typename T>
+struct My::MySRefl::TypeInfo<A<T>> : My::MySRefl::TypeInfoBase<A<T>> {
   static constexpr AttrList attrs = {};
 
   static constexpr FieldList fields = {
-      Field{"a", &A::a},
+      Field{"a", &A<T>::a},
   };
 };
 
 template <>
-struct My::MySRefl::TypeInfo<B> : My::MySRefl::TypeInfoBase<B, Base<A, true>> {
+struct My::MySRefl::TypeInfo<B>
+    : My::MySRefl::TypeInfoBase<B, Base<A<bool>, true>> {
   static constexpr AttrList attrs = {};
 
   static constexpr FieldList fields = {
@@ -41,11 +43,11 @@ int main() {
   {
     sol::state_view lua(L);
     const char code[] = R"(
- b = B.new()
- b.a = 1
- b.b = 2
- print(b.a, b.b)
- )";
+b = B.new()
+b.a = true
+b.b = 2
+print(b.a, b.b)
+)";
     cout << code << endl << "----------------------------" << endl;
     lua.script(code);
   }
