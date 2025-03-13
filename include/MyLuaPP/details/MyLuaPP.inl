@@ -14,7 +14,9 @@
 namespace My::MyLuaPP::detail {
 struct NameInfo {
   NameInfo(std::string_view name) {
-    size_t cur = name[0] == 's' ? 6 : 5;
+    size_t cur = name[0] == 's'   ? 6   // struct
+                 : name[0] == 'c' ? 5   // class
+                                  : 4;  // enum
     std::string str;
     while (++cur < name.size()) {
       if (name[cur] == ':') {
@@ -46,8 +48,13 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
           std::tuple<>{}, [](auto acc, auto field) {
             return std::tuple_cat(acc, std::tuple{field.value});
           });
-  return std::apply([](auto... elems) { return sol::initializers(elems...); },
-                    constructors);
+  if constexpr (std::tuple_size_v<std::decay_t<decltype(constructors)>> > 0)
+    return std::apply([](auto... elems) { return sol::initializers(elems...); },
+                      constructors);
+  else {
+    static_assert(std::is_default_constructible_v<T>);
+    return sol::initializers(MySRefl::WrapConstructor<T()>());
+  }
 }
 
 template <typename T>
@@ -65,7 +72,7 @@ constexpr auto GetFuncNumOverloadNum() {
   constexpr auto overloadNames = funcFields.Accumulate(
       std::array<std::string_view, funcFields.size>{},
       [idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        if (func.name !=  MySRefl::Name::constructor)  {
+        if (func.name != MySRefl::Name::constructor) {
           acc[idx] = func.name;
           for (size_t i = 0; i < idx; i++) {
             if (func.name == acc[i]) {
@@ -103,7 +110,7 @@ constexpr auto GetOverloadFuncListAt(std::index_sequence<Ns...>) {
   constexpr auto overloadNames = funcFields.Accumulate(
       std::array<std::string_view, funcFields.size>{},
       [idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-       if (func.name != MySRefl::Name::constructor) {
+        if (func.name != MySRefl::Name::constructor) {
           acc[idx] = func.name;
           for (size_t i = 0; i < idx; i++) {
             if (func.name == acc[i]) {
@@ -158,11 +165,9 @@ constexpr auto GetOverload() {
       std::make_index_sequence<std::get<0>(funcNumOverloadNum)>{},
       std::make_index_sequence<std::get<1>(funcNumOverloadNum)>{});
 }
-}  // namespace My::MyLuaPP::detail
 
-namespace My::MyLuaPP {
 template <typename T>
-void Register(lua_State* L) {
+void RegisterClass(lua_State* L) {
   sol::state_view lua(L);
   sol::table typeinfo = lua["MySRefl_TypeInfo"].get_or_create<sol::table>();
   detail::NameInfo nameInfo(My::MySRefl::TypeInfo<T>::name);
@@ -171,9 +176,7 @@ void Register(lua_State* L) {
       nameInfo.rawName,
       detail::GetInits<T>(
           std::make_index_sequence<My::MySRefl::TypeInfo<T>::fields.size>{}));
-  MySRefl::TypeInfo<T>::DFS_ForEach([&](auto t, size_t) {
-    t.fields.ForEach([&](auto field) { type[field.name] = field.value; });
-  });
+
   sol::table typeinfo_type =
       typeinfo[nameInfo.rawName].get_or_create<sol::table>();
   sol::table typeinfo_type_attrs =
@@ -193,8 +196,6 @@ void Register(lua_State* L) {
         (std::apply(
              [&](auto... funcs) {
                auto packedFuncs = sol::overload(funcs.value...);
-               // type.set_function(std::get<0>(std::tuple{ funcs... }).name,
-               // sol::overload(funcs.value...));
                auto name = std::get<0>(std::tuple{funcs...}).name;
                if (name == "operator+")
                  type[sol::meta_function::addition] = packedFuncs;
@@ -249,6 +250,8 @@ void Register(lua_State* L) {
   MySRefl::TypeInfo<T>::DFS_ForEach([&](auto t, size_t) {
     t.fields.ForEach([&](auto field) {
       if constexpr (!field.is_func) {
+        type[field.name] = field.value;
+
         sol::table typeinfo_type_fields_field =
             typeinfo_type_fields[field.name].get_or_create<sol::table>();
         sol::table typeinfo_type_fields_field_attrs =
@@ -264,5 +267,28 @@ void Register(lua_State* L) {
       }
     });
   });
+}
+
+template <typename T>
+void RegisterEnum(lua_State* L) {
+  sol::state_view lua(L);
+  detail::NameInfo nameInfo(My::MySRefl::TypeInfo<T>::name);
+  // sol::table typeinfo = lua["MySRefl_TypeInfo"].get_or_create<sol::table>();
+  constexpr auto nvs = MySRefl::TypeInfo<T>::fields.Accumulate(
+      std::tuple<>{}, [](auto acc, auto field) {
+        return std::tuple_cat(acc, std::tuple{field.name, field.value});
+      });
+  std::apply([&](auto... values) { lua.new_enum(nameInfo.rawName, values...); },
+             nvs);
+}
+}  // namespace My::MyLuaPP::detail
+
+namespace My::MyLuaPP {
+template <typename T>
+void Register(lua_State* L) {
+  if constexpr (std::is_enum_v<T>)
+    detail::RegisterEnum<T>(L);
+  else
+    detail::RegisterClass<T>(L);
 }
 }  // namespace My::MyLuaPP
