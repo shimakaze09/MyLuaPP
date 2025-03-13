@@ -51,10 +51,10 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
   if constexpr (std::tuple_size_v<std::decay_t<decltype(constructors)>> > 0)
     return std::apply([](auto... elems) { return sol::initializers(elems...); },
                       constructors);
-  else {
-    static_assert(std::is_default_constructible_v<T>);
+  else if constexpr (std::is_default_constructible_v<T>)
     return sol::initializers(MySRefl::WrapConstructor<T()>());
-  }
+  else
+    return sol::no_constructor;
 }
 
 template <typename T>
@@ -143,7 +143,8 @@ constexpr auto GetOverloadFuncListAt(std::index_sequence<Ns...>) {
       });
 
   constexpr auto funcList = funcFields.template Accumulate<masks[Ns]...>(
-      MySRefl::ElemList<>{}, [](auto acc, auto func) { return acc.Push(func); });
+      MySRefl::ElemList<>{},
+      [](auto acc, auto func) { return acc.Push(func); });
 
   return funcList;
 }
