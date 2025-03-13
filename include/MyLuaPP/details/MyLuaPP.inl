@@ -35,19 +35,31 @@ struct NameInfo {
   std::string rawName;
 };
 
+template <typename T>
+constexpr auto DFS_GetFields() {
+  if constexpr (MySRefl::TypeInfo<T>::bases.size > 0) {
+    return MySRefl::TypeInfo<T>::DFS_Acc(
+        MySRefl::ElemList<>{}, [](auto acc, auto t, size_t) {
+          return t.fields.Accumulate(
+              acc, [](auto acc, auto field) { return acc.Push(field); });
+        });
+  } else
+    return MySRefl::TypeInfo<T>::fields;
+}
+
 template <typename T, size_t... Ns>
 constexpr auto GetInits(std::index_sequence<Ns...>) {
-  constexpr auto masks = MySRefl::TypeInfo<T>::fields.Accumulate(
-      std::array<bool, MySRefl::TypeInfo<T>::fields.size>{},
-      [idx = 0](auto&& acc, auto field) mutable {
-        acc[idx++] = field.name == MySRefl::Name::constructor;
-        return std::forward<decltype(acc)>(acc);
+  constexpr auto fields = MySRefl::TypeInfo<T>::fields;
+  constexpr auto masks =
+      fields.Accumulate(std::array<bool, fields.size>{},
+                        [idx = 0](auto&& acc, auto field) mutable {
+                          acc[idx++] = field.name == MySRefl::Name::constructor;
+                          return std::forward<decltype(acc)>(acc);
+                        });
+  constexpr auto constructors = fields.template Accumulate<masks[Ns]...>(
+      std::tuple<>{}, [](auto acc, auto field) {
+        return std::tuple_cat(acc, std::tuple{field.value});
       });
-  constexpr auto constructors =
-      MySRefl::TypeInfo<T>::fields.template Accumulate<masks[Ns]...>(
-          std::tuple<>{}, [](auto acc, auto field) {
-            return std::tuple_cat(acc, std::tuple{field.value});
-          });
   if constexpr (std::tuple_size_v<std::decay_t<decltype(constructors)>> > 0)
     return std::apply([](auto... elems) { return sol::initializers(elems...); },
                       constructors);
@@ -61,22 +73,20 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
 template <typename T, typename Acc, size_t... Ns, size_t... Indices>
 constexpr auto GetOverloadFuncListTupleRec(Acc acc, std::index_sequence<Ns...>,
                                            std::index_sequence<Indices...>) {
+  constexpr auto fields = DFS_GetFields<T>();
   if constexpr (sizeof...(Indices) > 0) {
     using IST =
         MySRefl::detail::IntegerSequenceTraits<std::index_sequence<Indices...>>;
     if constexpr (IST::head != static_cast<size_t>(-1)) {
-      constexpr auto masks = MySRefl::TypeInfo<T>::fields.Accumulate(
-          std::array<bool, MySRefl::TypeInfo<T>::fields.size>{},
-          [idx = static_cast<size_t>(0)](auto acc, auto field) mutable {
-            acc[idx++] =
-                field.name ==
-                MySRefl::TypeInfo<T>::fields.template Get<IST::head>().name;
+      constexpr auto masks = fields.Accumulate(
+          std::array<bool, fields.size>{},
+          [fields, idx = static_cast<size_t>(0)](auto acc, auto field) mutable {
+            acc[idx++] = field.name == fields.template Get<IST::head>().name;
             return acc;
           });
-      constexpr auto funclist =
-          MySRefl::TypeInfo<T>::fields.template Accumulate<masks[Ns]...>(
-              MySRefl::ElemList<>{},
-              [](auto acc, auto func) { return acc.Push(func); });
+      constexpr auto funclist = fields.template Accumulate<masks[Ns]...>(
+          MySRefl::ElemList<>{},
+          [](auto acc, auto func) { return acc.Push(func); });
       return GetOverloadFuncListTupleRec<T>(
           std::tuple_cat(acc, std::tuple{funclist}),
           std::index_sequence<Ns...>{}, IST::tail);
@@ -90,40 +100,39 @@ constexpr auto GetOverloadFuncListTupleRec(Acc acc, std::index_sequence<Ns...>,
 // sizeof...(Ns) is the field number
 template <typename T, size_t... Ns>
 constexpr auto GetOverloadFuncListTupleImpl(std::index_sequence<Ns...>) {
-  if constexpr (MySRefl::TypeInfo<T>::bases.size == 0) {
-    constexpr auto names =
-        std::array{MySRefl::TypeInfo<T>::fields.template Get<Ns>().name...};
+  constexpr auto fields = DFS_GetFields<T>();
+  constexpr auto names = std::array{fields.template Get<Ns>().name...};
 
-    constexpr auto indices = MySRefl::TypeInfo<T>::fields.Accumulate(
-        std::array<size_t, MySRefl::TypeInfo<T>::fields.size>{},
-        [names, idx = static_cast<size_t>(0)](auto acc, auto field) mutable {
-          if constexpr (field.is_func) {
-            acc[idx] = idx;
-            for (size_t i = 0; i < idx; i++) {
-              if (field.name == names[i] ||
-                  field.name == MySRefl::Name::constructor ||
-                  field.name == MySRefl::Name::destructor) {
-                acc[idx] = static_cast<size_t>(-1);
-                break;
-              }
-            }
-          } else
-            acc[idx] = static_cast<size_t>(-1);
+  constexpr auto indices =
+      fields.Accumulate(std::array<size_t, fields.size>{},
+                        [fields, names, idx = static_cast<size_t>(0)](
+                            auto acc, auto field) mutable {
+                          if constexpr (field.is_func) {
+                            acc[idx] = idx;
+                            for (size_t i = 0; i < idx; i++) {
+                              if (field.name == names[i] ||
+                                  field.name == MySRefl::Name::constructor ||
+                                  field.name == MySRefl::Name::destructor) {
+                                acc[idx] = static_cast<size_t>(-1);
+                                break;
+                              }
+                            }
+                          } else
+                            acc[idx] = static_cast<size_t>(-1);
 
-          idx++;
-          return acc;
-        });
-    return GetOverloadFuncListTupleRec<T>(
-        std::tuple<>{}, std::index_sequence<Ns...>{},
-        std::index_sequence<indices[Ns]...>{});
-  } else
-    static_assert(false, "DFS");
+                          idx++;
+                          return acc;
+                        });
+  return GetOverloadFuncListTupleRec<T>(std::tuple<>{},
+                                        std::index_sequence<Ns...>{},
+                                        std::index_sequence<indices[Ns]...>{});
 }
 
 template <typename T>
 constexpr auto GetOverloadFuncListTuple() {
+  constexpr auto fields = DFS_GetFields<T>();
   return GetOverloadFuncListTupleImpl<T>(
-      std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>());
+      std::make_index_sequence<fields.size>());
 }
 
 template <typename T>
