@@ -37,14 +37,14 @@ struct NameInfo {
 
 template <typename T, size_t... Ns>
 constexpr auto GetInits(std::index_sequence<Ns...>) {
-  constexpr auto masks = My::MySRefl::TypeInfo<T>::fields.Accumulate(
-      std::array<bool, My::MySRefl::TypeInfo<T>::fields.size>{},
+  constexpr auto masks = MySRefl::TypeInfo<T>::fields.Accumulate(
+      std::array<bool, MySRefl::TypeInfo<T>::fields.size>{},
       [idx = 0](auto&& acc, auto field) mutable {
         acc[idx++] = field.name == MySRefl::Name::constructor;
         return std::forward<decltype(acc)>(acc);
       });
   constexpr auto constructors =
-      My::MySRefl::TypeInfo<T>::fields.template Accumulate<masks[Ns]...>(
+      MySRefl::TypeInfo<T>::fields.template Accumulate<masks[Ns]...>(
           std::tuple<>{}, [](auto acc, auto field) {
             return std::tuple_cat(acc, std::tuple{field.value});
           });
@@ -57,125 +57,85 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
     return sol::no_constructor;
 }
 
-template <typename T>
-constexpr auto GetFuncNumOverloadNum() {
-  constexpr auto funcFields = My::MySRefl::TypeInfo<T>::DFS_Acc(
-      MySRefl::ElemList<>{}, [](auto acc, auto baseType, size_t) {
-        return baseType.fields.Accumulate(acc, [](auto acc, auto field) {
-          if constexpr (field.is_func)
-            return acc.Push(field);
-          else
+// sizeof...(Ns) is the field number
+template <typename T, typename Acc, size_t... Ns, size_t... Indices>
+constexpr auto GetOverloadFuncListTupleRec(Acc acc, std::index_sequence<Ns...>,
+                                           std::index_sequence<Indices...>) {
+  if constexpr (sizeof...(Indices) > 0) {
+    using IST =
+        MySRefl::detail::IntegerSequenceTraits<std::index_sequence<Indices...>>;
+    if constexpr (IST::head != static_cast<size_t>(-1)) {
+      constexpr auto masks = MySRefl::TypeInfo<T>::fields.Accumulate(
+          std::array<bool, MySRefl::TypeInfo<T>::fields.size>{},
+          [idx = static_cast<size_t>(0)](auto acc, auto field) mutable {
+            acc[idx++] =
+                field.name ==
+                MySRefl::TypeInfo<T>::fields.template Get<IST::head>().name;
             return acc;
-        });
-      });
-
-  constexpr auto overloadNames = funcFields.Accumulate(
-      std::array<std::string_view, funcFields.size>{},
-      [idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        if (func.name != MySRefl::Name::constructor) {
-          acc[idx] = func.name;
-          for (size_t i = 0; i < idx; i++) {
-            if (func.name == acc[i]) {
-              acc[idx] = "";
-              break;
-            }
-          }
-        } else
-          acc[idx] = "";
-        idx++;
-        return acc;
-      });
-
-  constexpr auto overloadNum = std::apply(
-      [](auto... names) {
-        return (0 + ... + static_cast<size_t>(!names.empty()));
-      },
-      overloadNames);
-
-  return std::tuple{funcFields.size, overloadNum};
+          });
+      constexpr auto funclist =
+          MySRefl::TypeInfo<T>::fields.template Accumulate<masks[Ns]...>(
+              MySRefl::ElemList<>{},
+              [](auto acc, auto func) { return acc.Push(func); });
+      return GetOverloadFuncListTupleRec<T>(
+          std::tuple_cat(acc, std::tuple{funclist}),
+          std::index_sequence<Ns...>{}, IST::tail);
+    } else
+      return GetOverloadFuncListTupleRec<T>(acc, std::index_sequence<Ns...>{},
+                                            IST::tail);
+  } else
+    return acc;
 }
 
-template <typename T, size_t OverloadNum, size_t Index, size_t... Ns>
-constexpr auto GetOverloadFuncListAt(std::index_sequence<Ns...>) {
-  constexpr auto funcFields = My::MySRefl::TypeInfo<T>::DFS_Acc(
-      MySRefl::ElemList<>{}, [](auto acc, auto baseType, size_t) {
-        return baseType.fields.Accumulate(acc, [](auto acc, auto field) {
-          if constexpr (field.is_func)
-            return acc.Push(field);
-          else
-            return acc;
-        });
-      });
+// sizeof...(Ns) is the field number
+template <typename T, size_t... Ns>
+constexpr auto GetOverloadFuncListTupleImpl(std::index_sequence<Ns...>) {
+  if constexpr (MySRefl::TypeInfo<T>::bases.size == 0) {
+    constexpr auto names =
+        std::array{MySRefl::TypeInfo<T>::fields.template Get<Ns>().name...};
 
-  constexpr auto overloadNames = funcFields.Accumulate(
-      std::array<std::string_view, funcFields.size>{},
-      [idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        if (func.name != MySRefl::Name::constructor) {
-          acc[idx] = func.name;
-          for (size_t i = 0; i < idx; i++) {
-            if (func.name == acc[i]) {
-              acc[idx] = "";
-              break;
+    constexpr auto indices = MySRefl::TypeInfo<T>::fields.Accumulate(
+        std::array<size_t, MySRefl::TypeInfo<T>::fields.size>{},
+        [names, idx = static_cast<size_t>(0)](auto acc, auto field) mutable {
+          if constexpr (field.is_func) {
+            acc[idx] = idx;
+            for (size_t i = 0; i < idx; i++) {
+              if (field.name == names[i] ||
+                  field.name == MySRefl::Name::constructor ||
+                  field.name == MySRefl::Name::destructor) {
+                acc[idx] = static_cast<size_t>(-1);
+                break;
+              }
             }
-          }
-        } else
-          acc[idx] = "";
-        idx++;
-        return acc;
-      });
+          } else
+            acc[idx] = static_cast<size_t>(-1);
 
-  constexpr auto indices = funcFields.Accumulate(
-      std::array<size_t, OverloadNum>{},
-      [overloadNames, idx = static_cast<size_t>(0),
-       indicesCur = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        if (!overloadNames[idx].empty()) acc[indicesCur++] = idx;
-        idx++;
-        return acc;
-      });
-
-  constexpr auto name = funcFields.Get<indices[Index]>().name;
-
-  constexpr auto masks = funcFields.Accumulate(
-      std::array<bool, funcFields.size>{},
-      [name, idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        acc[idx++] = func.name == name;
-        return acc;
-      });
-
-  constexpr auto funcList = funcFields.template Accumulate<masks[Ns]...>(
-      MySRefl::ElemList<>{},
-      [](auto acc, auto func) { return acc.Push(func); });
-
-  return funcList;
-}
-
-template <typename T, size_t... Ns, size_t... Ms>
-constexpr auto GetOverloadFuncListTuple(std::index_sequence<Ns...>,
-                                        std::index_sequence<Ms...>) {
-  constexpr size_t OverloadNum = sizeof...(Ms);
-  return std::tuple{GetOverloadFuncListAt<T, OverloadNum, Ms>(
-      std::index_sequence<Ns...>{})...};
+          idx++;
+          return acc;
+        });
+    return GetOverloadFuncListTupleRec<T>(
+        std::tuple<>{}, std::index_sequence<Ns...>{},
+        std::index_sequence<indices[Ns]...>{});
+  } else
+    static_assert(false, "DFS");
 }
 
 template <typename T>
-constexpr auto GetOverload() {
-  constexpr auto funcNumOverloadNum = GetFuncNumOverloadNum<T>();
-
-  return GetOverloadFuncListTuple<T>(
-      std::make_index_sequence<std::get<0>(funcNumOverloadNum)>{},
-      std::make_index_sequence<std::get<1>(funcNumOverloadNum)>{});
+constexpr auto GetOverloadFuncListTuple() {
+  return GetOverloadFuncListTupleImpl<T>(
+      std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>());
 }
 
 template <typename T>
 void RegisterClass(lua_State* L) {
   sol::state_view lua(L);
   sol::table typeinfo = lua["MySRefl_TypeInfo"].get_or_create<sol::table>();
-  detail::NameInfo nameInfo(My::MySRefl::TypeInfo<T>::name);
+  NameInfo nameInfo(MySRefl::TypeInfo<T>::name);
 
   sol::usertype<T> type = lua.new_usertype<T>(
       nameInfo.rawName,
-      detail::GetInits<T>(
-          std::make_index_sequence<My::MySRefl::TypeInfo<T>::fields.size>{}));
+      GetInits<T>(
+          std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>{}));
 
   sol::table typeinfo_type =
       typeinfo[nameInfo.rawName].get_or_create<sol::table>();
@@ -190,7 +150,7 @@ void RegisterClass(lua_State* L) {
       typeinfo_type_attrs[attr.name] = true;  // default
   });
 
-  constexpr auto overloadFuncListTuple = detail::GetOverload<T>();
+  constexpr auto overloadFuncListTuple = GetOverloadFuncListTuple<T>();
   std::apply(
       [&](auto... funcLists) {
         (std::apply(
@@ -272,7 +232,7 @@ void RegisterClass(lua_State* L) {
 template <typename T>
 void RegisterEnum(lua_State* L) {
   sol::state_view lua(L);
-  detail::NameInfo nameInfo(My::MySRefl::TypeInfo<T>::name);
+  NameInfo nameInfo(MySRefl::TypeInfo<T>::name);
   sol::table typeinfo = lua["MySRefl_TypeInfo"].get_or_create<sol::table>();
   sol::table typeinfo_enum =
       typeinfo[nameInfo.rawName].get_or_create<sol::table>();

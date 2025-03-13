@@ -43,8 +43,9 @@ int main() {
 
   My::MyLuaPP::Register<Color>(L);
 
-  sol::state_view lua(L);
-  const char code[] = R"(
+  {
+    sol::state_view lua(L);
+    const char code[] = R"(
 print(Color.RED)
 print(Color.GREEN)
 print(Color.BLUE)
@@ -53,8 +54,9 @@ print(MySRefl_TypeInfo.Color.fields.RED.attrs.meta)
 print(MySRefl_TypeInfo.Color.fields.GREEN.attrs.meta)
 print(MySRefl_TypeInfo.Color.fields.BLUE.attrs.meta)
 )";
-  cout << code << endl << "----------------------------" << endl;
-  lua.script(code);
+    cout << code << endl << "----------------------------" << endl;
+    lua.script(code);
+  }
 
   while (fgets(buff, sizeof(buff), stdin) != NULL) {
     error = luaL_loadstring(L, buff) || lua_pcall(L, 0, 0, 0);
