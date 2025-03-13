@@ -18,28 +18,37 @@ struct [[size(8)]] Point {
 };
 
 template <>
-struct TypeInfo<Point> : TypeInfoBase<Point> {
-  static constexpr FieldList fields = {
-      Field{"constructor",
-            static_cast<void (*)(Point*)>([](Point* p) { new (p) Point; })},
-      Field{"constructor",
-            static_cast<void (*)(Point*, float, float)>(
-                [](Point* p, float x, float y) { new (p) Point{x, y}; })},
-      Field{"x", &Point::x, AttrList{Attr{"not_serialize"}}},
-      Field{"y", &Point::y, AttrList{Attr{"info", "hello"}}},
-      Field{"Sum", &Point::Sum}};
+struct My::MySRefl::TypeInfo<Point> : My::MySRefl::TypeInfoBase<Point> {
+  static constexpr AttrList attrs = {
+      Attr{"size", 8},
+  };
 
-  static constexpr AttrList attrs = {Attr{"size", 8}};
+  static constexpr FieldList fields = {
+      Field{"x", &Point::x,
+            AttrList{
+                Attr{"not_serialize"},
+            }},
+      Field{"y", &Point::y,
+            AttrList{
+                Attr{"info", "hello"},
+            }},
+      Field{Name::constructor, WrapConstructor<Point()>()},
+      Field{Name::constructor, WrapConstructor<Point(float, float)>(),
+            AttrList{
+                Attr{MY_MYSREFL_NAME_ARG(0),
+                     AttrList{
+                         Attr{Name::name, "x"},
+                     }},
+                Attr{MY_MYSREFL_NAME_ARG(1),
+                     AttrList{
+                         Attr{Name::name, "y"},
+                     }},
+            }},
+      Field{"Sum", &Point::Sum},
+  };
 };
 
 int main() {
-  constexpr auto overloadFuncListTuple =
-      My::MyLuaPP::detail::GetOverload<Point>();
-  // constexpr auto s = num.size;
-  // cout << num << endl;
-
-  void (*f)(Point*) = [](Point* p) { new (p) Point; };
-
   char buff[256];
   int error;
   lua_State* L = luaL_newstate(); /* opens Lua */
@@ -48,29 +57,18 @@ int main() {
   My::MyLuaPP::Register<Point>(L);
   sol::state_view lua(L);
   const char code[] = R"(
- p0 = Point.new(3, 4)                                       -- constructor
- p1 = Point.new()                                           -- constructor overload
- print(p0.x, p0.y)                                          -- get field
- p1.x = 3                                                   -- set field
- print(p1.x, p1.y)
- print(p0:Sum())                                            -- non-static member function
- print(MySRefl_TypeInfo.Point.attrs.size)                    -- MySRefl type attrs
- print(MySRefl_TypeInfo.Point.fields.x.attrs.not_serialize)  -- MySRefl field attrs
- print(MySRefl_TypeInfo.Point.fields.y.attrs.info)           -- MySRefl type attrs
- )";
+p0 = Point.new(3, 4)                                       -- constructor
+p1 = Point.new()                                           -- constructor overload
+print(p0.x, p0.y)                                          -- get field
+p1.x = 3                                                   -- set field
+print(p1.x, p1.y)
+print(p0:Sum())                                            -- non-static member function
+print(MySRefl_TypeInfo.Point.attrs.size)                    -- MySRefl type attrs
+print(MySRefl_TypeInfo.Point.fields.x.attrs.not_serialize)  -- MySRefl field attrs
+print(MySRefl_TypeInfo.Point.fields.y.attrs.info)           -- MySRefl type attrs
+)";
   cout << code << endl << "----------------------------" << endl;
   lua.script(code);
-
-  constexpr auto t = My::MySRefl::TypeInfo<Point>::fields.Accumulate(
-      std::array<size_t, My::MySRefl::TypeInfo<Point>::fields.size>{},
-      [&, idx = 0](auto acc, auto field) mutable {
-        if (field.name == "constructor")
-          acc[idx] = idx;
-        else
-          acc[idx] = static_cast<size_t>(-1);
-        idx++;
-        return acc;
-      });
 
   while (fgets(buff, sizeof(buff), stdin) != NULL) {
     error = luaL_loadstring(L, buff) || lua_pcall(L, 0, 0, 0);

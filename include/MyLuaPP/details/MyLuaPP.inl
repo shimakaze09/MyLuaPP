@@ -38,7 +38,7 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
   constexpr auto masks = My::MySRefl::TypeInfo<T>::fields.Accumulate(
       std::array<bool, My::MySRefl::TypeInfo<T>::fields.size>{},
       [idx = 0](auto&& acc, auto field) mutable {
-        acc[idx++] = field.name == "constructor";
+        acc[idx++] = field.name == MySRefl::Name::constructor;
         return std::forward<decltype(acc)>(acc);
       });
   constexpr auto constructors =
@@ -65,7 +65,7 @@ constexpr auto GetFuncNumOverloadNum() {
   constexpr auto overloadNames = funcFields.Accumulate(
       std::array<std::string_view, funcFields.size>{},
       [idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        if (func.name != "constructor") {
+        if (func.name !=  MySRefl::Name::constructor)  {
           acc[idx] = func.name;
           for (size_t i = 0; i < idx; i++) {
             if (func.name == acc[i]) {
@@ -103,7 +103,7 @@ constexpr auto GetOverloadFuncListAt(std::index_sequence<Ns...>) {
   constexpr auto overloadNames = funcFields.Accumulate(
       std::array<std::string_view, funcFields.size>{},
       [idx = static_cast<size_t>(0)](auto acc, auto func) mutable {
-        if (func.name != "constructor") {
+       if (func.name != MySRefl::Name::constructor) {
           acc[idx] = func.name;
           for (size_t i = 0; i < idx; i++) {
             if (func.name == acc[i]) {

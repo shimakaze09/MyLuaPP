@@ -7,46 +7,70 @@
 using namespace My::MySRefl;
 using namespace std;
 
-struct [[size(8)]] Point {
-  Point() : x{0.f}, y{0.f} {}
-  Point(float x, float y) : x{x}, y{y} {}
-  [[not_serialize]]
-  float x;
-  [[info("hello")]]
-  float y;
-  float Sum() { return x + y; }
-  float Sum(float z) { return x + y + z; }
-  [[number(1024)]]
-  float Min() {
-    return x < y ? x : y;
-  }
-  [[number(520)]]
-  float Min(float z) {
-    return x < y ? (x < z ? x : z) : (y < z ? y : z);
-  }
-  Point Add(const Point& rhs) const { return {x + rhs.x, y + rhs.y}; }
-  Point operator-(const Point& rhs) const { return {x - rhs.x, y - rhs.y}; }
-};
+struct [[size(8)]] Point {};
 
 template <>
-struct TypeInfo<Point> : TypeInfoBase<Point> {
-  static constexpr FieldList fields = {
-      Field{"constructor",
-            static_cast<void (*)(Point*)>([](Point* p) { new (p) Point; })},
-      Field{"constructor",
-            static_cast<void (*)(Point*, float, float)>(
-                [](Point* p, float x, float y) { new (p) Point{x, y}; })},
-      Field{"x", &Point::x, AttrList{Attr{"not_serialize"}}},
-      Field{"y", &Point::y, AttrList{Attr{"info", "hello"}}},
-      Field{"Sum", static_cast<float (Point::*)()>(&Point::Sum)},
-      Field{"Sum", static_cast<float (Point::*)(float)>(&Point::Sum)},
-      Field{"Min", static_cast<float (Point::*)()>(&Point::Min),
-            AttrList{Attr{"number", 1024}}},
-      Field{"Min", static_cast<float (Point::*)(float)>(&Point::Min),
-            AttrList{Attr{"number", 520}}},
-      Field{"Add", &Point::Add}, Field{"operator-", &Point::operator- } };
+struct My::MySRefl::TypeInfo<Point> : My::MySRefl::TypeInfoBase<Point> {
+  static constexpr AttrList attrs = {
+      Attr{"size", 8},
+  };
 
-  static constexpr AttrList attrs = {Attr{"size", 8}};
+  static constexpr FieldList fields = {
+      Field{"x", &Point::x,
+            AttrList{
+                Attr{"not_serialize"},
+            }},
+      Field{"y", &Point::y,
+            AttrList{
+                Attr{"info", "hello"},
+            }},
+      Field{Name::constructor, WrapConstructor<Point()>()},
+      Field{Name::constructor, WrapConstructor<Point(float, float)>(),
+            AttrList{
+                Attr{MY_MYSREFL_NAME_ARG(0),
+                     AttrList{
+                         Attr{Name::name, "x"},
+                     }},
+                Attr{MY_MYSREFL_NAME_ARG(1),
+                     AttrList{
+                         Attr{Name::name, "y"},
+                     }},
+            }},
+      Field{"Sum", static_cast<float (Point::*)()>(&Point::Sum)},
+      Field{"Sum", static_cast<float (Point::*)(float)>(&Point::Sum),
+            AttrList{
+                Attr{MY_MYSREFL_NAME_ARG(0),
+                     AttrList{
+                         Attr{Name::name, "z"},
+                     }},
+            }},
+      Field{"Min", static_cast<float (Point::*)()>(&Point::Min),
+            AttrList{
+                Attr{"number", 1024},
+            }},
+      Field{"Min", static_cast<float (Point::*)(float)>(&Point::Min),
+            AttrList{
+                Attr{"number", 520},
+                Attr{MY_MYSREFL_NAME_ARG(0),
+                     AttrList{
+                         Attr{Name::name, "z"},
+                     }},
+            }},
+      Field{"Add", &Point::Add,
+            AttrList{
+                Attr{MY_MYSREFL_NAME_ARG(0),
+                     AttrList{
+                         Attr{Name::name, "rhs"},
+                     }},
+            }},
+      Field{"operator-", &Point::operator-,
+            AttrList{
+                Attr{MY_MYSREFL_NAME_ARG(0),
+                     AttrList{
+                         Attr{Name::name, "rhs"},
+                     }},
+            }},
+  };
 };
 
 int main() {
