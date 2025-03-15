@@ -9,11 +9,14 @@ using namespace std;
 
 struct [[size(8)]] Point {
   Point() : x{0.f}, y{0.f} {}
+
   Point(float x, float y) : x{x}, y{y} {}
+
   [[not_serialize]]
   float x;
   [[info("hello")]]
   float y;
+
   float Sum() { return x + y; }
 };
 
@@ -33,17 +36,10 @@ struct My::MySRefl::TypeInfo<Point> : My::MySRefl::TypeInfoBase<Point> {
                 Attr{"info", "hello"},
             }},
       Field{Name::constructor, WrapConstructor<Point()>()},
-      Field{Name::constructor, WrapConstructor<Point(float, float)>(),
-            AttrList{
-                Attr{MY_MYSREFL_NAME_ARG(0),
-                     AttrList{
-                         Attr{Name::name, "x"},
-                     }},
-                Attr{MY_MYSREFL_NAME_ARG(1),
-                     AttrList{
-                         Attr{Name::name, "y"},
-                     }},
-            }},
+      Field{
+          Name::constructor,
+          WrapConstructor<Point(float, float)>(),
+      },
       Field{"Sum", &Point::Sum},
   };
 };
