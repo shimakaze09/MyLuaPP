@@ -52,8 +52,10 @@ int main() {
   lua_State* L = luaL_newstate(); /* opens Lua */
   luaL_openlibs(L);               /* opens the standard libraries */
   My::MyLuaPP::Register<Point>(L);
+  auto ptr = malloc(sizeof(Point));
   {
     sol::state_view lua(L);
+    lua["ptr"] = ptr;
     const char code[] = R"(
 p0 = Point.new(3, 4)                                       -- constructor
 p1 = Point.new()                                           -- constructor overload
@@ -64,6 +66,10 @@ print(p0:Sum())                                            -- non-static member 
 print(MySRefl_TypeInfo.Point.attrs.size)                    -- MySRefl type attrs
 print(MySRefl_TypeInfo.Point.fields.x.attrs.not_serialize)  -- MySRefl field attrs
 print(MySRefl_TypeInfo.Point.fields.y.attrs.info)           -- MySRefl type attrs
+p2 = Point.voidp(ptr)
+p2.x = 520
+p2.y = 1024
+print(p2.x, p2.y)
 )";
     cout << code << endl << "----------------------------" << endl;
     lua.script(code);
@@ -77,5 +83,7 @@ print(MySRefl_TypeInfo.Point.fields.y.attrs.info)           -- MySRefl type attr
     }
   }
   lua_close(L);
+  cout << "ptr : " << ((Point*)ptr)->x << ", " << ((Point*)ptr)->y << endl;
+  free(ptr);
   return 0;
 }

@@ -76,6 +76,7 @@ void SetOverloadFuncs(sol::usertype<T>& type, sol::table& typeinfo_type_fields,
       [&](auto... funcs) {
         auto packedFuncs = sol::overload(funcs.value...);
         auto name = std::get<0>(std::tuple{funcs...}).name;
+        assert(name != "voidp");
         if (name == "operator+")
           type[sol::meta_function::addition] = packedFuncs;
         else if (name == "operator-")
@@ -192,6 +193,11 @@ void RegisterClass(lua_State* L) {
       nameInfo.rawName,
       GetInits<T>(
           std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>{}));
+
+  // set void* cast
+  type["voidp"] = [](void* p) {
+    return (T*)p;
+  };
 
   sol::table typeinfo_type =
       typeinfo[nameInfo.rawName].get_or_create<sol::table>();
