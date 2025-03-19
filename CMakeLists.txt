@@ -12,6 +12,7 @@ ADD_DEP(MyLua 0.1.0)
 ADD_DEP(MySRefl 0.5.3)
 ADD_DEP(MyTemplate 0.4.7)
 
+ADD_SUB_DIRS_REC(include)
 ADD_SUB_DIRS_REC(src)
 
 EXPORT_TARGETS(DIRECTORIES "include")

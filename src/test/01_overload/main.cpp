@@ -4,6 +4,8 @@
 
 #include <MyLuaPP/MyLuaPP.h>
 
+#include <iostream>
+
 using namespace My::MySRefl;
 using namespace std;
 

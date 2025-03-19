@@ -4,6 +4,8 @@
 
 #include <MyLuaPP/MyLuaPP.h>
 
+#include <iostream>
+
 using namespace My::MySRefl;
 using namespace std;
 
@@ -11,6 +13,7 @@ template <typename T>
 struct A {
   T a;
 };
+
 struct B : A<bool> {
   float b;
 };

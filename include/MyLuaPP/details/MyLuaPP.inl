@@ -9,7 +9,7 @@
 #include <array>
 #include <string>
 
-#include "_deps/sol2/sol.hpp"
+#include <sol/sol.hpp>
 
 namespace My::MyLuaPP::detail {
 struct NameInfo {
