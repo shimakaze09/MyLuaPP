@@ -9,7 +9,34 @@
 using namespace My::MySRefl;
 using namespace std;
 
-struct [[size(8)]] Point {};
+struct [[size(8)]] Point {
+  Point() : x{0.f}, y{0.f} {}
+
+  Point(float x, float y) : x{x}, y{y} {}
+
+  [[not_serialize]]
+  float x;
+  [[info("hello")]]
+  float y;
+
+  float Sum() { return x + y; }
+
+  float Sum(float z) { return x + y + z; }
+
+  [[number(1024)]]
+  float Min() {
+    return x < y ? x : y;
+  }
+
+  [[number(520)]]
+  float Min(float z) {
+    return x < y ? (x < z ? x : z) : (y < z ? y : z);
+  }
+
+  Point Add(const Point& rhs) const { return {x + rhs.x, y + rhs.y}; }
+
+  Point operator-(const Point& rhs) const { return {x - rhs.x, y - rhs.y}; }
+};
 
 template <>
 struct My::MySRefl::TypeInfo<Point> : My::MySRefl::TypeInfoBase<Point> {

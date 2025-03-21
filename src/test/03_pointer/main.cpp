@@ -36,7 +36,7 @@ struct Point {
 };
 
 template <>
-struct My::MySRefl::TypeInfo<Point> : My::USRefl::TypeInfoBase<Point> {
+struct My::MySRefl::TypeInfo<Point> : My::MySRefl::TypeInfoBase<Point> {
   static constexpr AttrList attrs = {};
 
   static constexpr FieldList fields = {
