@@ -18,6 +18,13 @@ and [MySRefl](https://github.com/shimakaze09/MySRefl)
 
 ## Example
 
+Suppose you have a class `Vec`, what you need to do are
+
+- write `TypeInfo<Vec>` (you can use `MySRefl::AutoRefl` to generate)
+- register : `My::MyLuaPP::Register<Vec>(lua_State*)`
+
+That's all.
+
 ```c++
 #include <MyLuaPP/MyLuaPP.h>
 #include <iostream>
