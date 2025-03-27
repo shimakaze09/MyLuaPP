@@ -16,23 +16,25 @@ enum class [[meta(520)]] Color {
 };
 
 template <>
-struct My::MySRefl::TypeInfo<Color> : My::MySRefl::TypeInfoBase<Color> {
+struct My::MySRefl::TypeInfo<Color> : TypeInfoBase<Color> {
+#ifdef MY_MYSREFL_NOT_USE_NAMEOF
+  static constexpr char name[6] = "Color";
+#endif
   static constexpr AttrList attrs = {
-      Attr{"meta", 520},
+      Attr{TSTR("meta"), 520},
   };
-
   static constexpr FieldList fields = {
-      Field{"RED", Color::RED,
+      Field{TSTR("RED"), Type::RED,
             AttrList{
-                Attr{"meta", "a"},
+                Attr{TSTR("meta"), "a"},
             }},
-      Field{"GREEN", Color::GREEN,
+      Field{TSTR("GREEN"), Type::GREEN,
             AttrList{
-                Attr{"meta", "b"},
+                Attr{TSTR("meta"), "b"},
             }},
-      Field{"BLUE", Color::BLUE,
+      Field{TSTR("BLUE"), Type::BLUE,
             AttrList{
-                Attr{"meta", "c"},
+                Attr{TSTR("meta"), "c"},
             }},
   };
 };
@@ -51,10 +53,6 @@ int main() {
 print(Color.RED)
 print(Color.GREEN)
 print(Color.BLUE)
-print(MySRefl_TypeInfo.Color.attrs.meta)
-print(MySRefl_TypeInfo.Color.fields.RED.attrs.meta)
-print(MySRefl_TypeInfo.Color.fields.GREEN.attrs.meta)
-print(MySRefl_TypeInfo.Color.fields.BLUE.attrs.meta)
 )";
     cout << code << endl << "----------------------------" << endl;
     lua.script(code);

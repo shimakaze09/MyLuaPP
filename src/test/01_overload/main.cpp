@@ -39,67 +39,39 @@ struct [[size(8)]] Point {
 };
 
 template <>
-struct My::MySRefl::TypeInfo<Point> : My::MySRefl::TypeInfoBase<Point> {
+struct My::MySRefl::TypeInfo<Point> : TypeInfoBase<Point> {
+#ifdef MY_MYSREFL_NOT_USE_NAMEOF
+  static constexpr char name[6] = "Point";
+#endif
   static constexpr AttrList attrs = {
-      Attr{"size", 8},
+      Attr{TSTR("size"), 8},
   };
-
   static constexpr FieldList fields = {
-      Field{"x", &Point::x,
+      Field{TSTR(MyMeta::constructor), WrapConstructor<Type()>()},
+      Field{TSTR(MyMeta::constructor), WrapConstructor<Type(float, float)>()},
+      Field{TSTR("x"), &Type::x,
             AttrList{
-                Attr{"not_serialize"},
+                Attr{TSTR("not_serialize")},
             }},
-      Field{"y", &Point::y,
+      Field{TSTR("y"), &Type::y,
             AttrList{
-                Attr{"info", "hello"},
+                Attr{TSTR("info"), "hello"},
             }},
-      Field{Name::constructor, WrapConstructor<Point()>()},
-      Field{Name::constructor, WrapConstructor<Point(float, float)>(),
+      Field{TSTR("Sum"), static_cast<float (Type::*)()>(&Type::Sum)},
+      Field{TSTR("Sum"), static_cast<float (Type::*)(float)>(&Type::Sum)},
+      Field{TSTR("Min"), static_cast<float (Type::*)()>(&Type::Min),
             AttrList{
-                Attr{MY_MYSREFL_NAME_ARG(0),
-                     AttrList{
-                         Attr{Name::name, "x"},
-                     }},
-                Attr{MY_MYSREFL_NAME_ARG(1),
-                     AttrList{
-                         Attr{Name::name, "y"},
-                     }},
+                Attr{TSTR("number"), 1024},
             }},
-      Field{"Sum", static_cast<float (Point::*)()>(&Point::Sum)},
-      Field{"Sum", static_cast<float (Point::*)(float)>(&Point::Sum),
+      Field{TSTR("Min"), static_cast<float (Type::*)(float)>(&Type::Min),
             AttrList{
-                Attr{MY_MYSREFL_NAME_ARG(0),
-                     AttrList{
-                         Attr{Name::name, "z"},
-                     }},
+                Attr{TSTR("number"), 520},
             }},
-      Field{"Min", static_cast<float (Point::*)()>(&Point::Min),
-            AttrList{
-                Attr{"number", 1024},
-            }},
-      Field{"Min", static_cast<float (Point::*)(float)>(&Point::Min),
-            AttrList{
-                Attr{"number", 520},
-                Attr{MY_MYSREFL_NAME_ARG(0),
-                     AttrList{
-                         Attr{Name::name, "z"},
-                     }},
-            }},
-      Field{"Add", &Point::Add,
-            AttrList{
-                Attr{MY_MYSREFL_NAME_ARG(0),
-                     AttrList{
-                         Attr{Name::name, "rhs"},
-                     }},
-            }},
-      Field{"operator-", &Point::operator-,
-            AttrList{
-                Attr{MY_MYSREFL_NAME_ARG(0),
-                     AttrList{
-                         Attr{Name::name, "rhs"},
-                     }},
-            }},
-  };
+      Field{TSTR("Add"), &Type::Add},
+      Field{
+          TSTR("operator-"),
+          &Type::operator- },
+      };
 };
 
 int main() {
@@ -107,6 +79,7 @@ int main() {
   int error;
   lua_State* L = luaL_newstate(); /* opens Lua */
   luaL_openlibs(L);               /* opens the standard libraries */
+
   My::MyLuaPP::Register<Point>(L);
   {
     sol::state_view lua(L);
@@ -117,14 +90,14 @@ print(p0.x, p0.y)                                          -- get field
 p1.x = 3                                                   -- set field
 print(p1.x, p1.y)
 print(p0:Sum())                                            -- non-static member function
-print(MySRefl_TypeInfo.Point.attrs.size)                    -- MySRefl type attrs
-print(MySRefl_TypeInfo.Point.fields.x.attrs.not_serialize)  -- MySRefl field attrs
-print(MySRefl_TypeInfo.Point.fields.y.attrs.info)           -- MySRefl type attrs
+--print(MySRefl_TypeInfo.Point.attrs.size)                    -- MySRefl type attrs
+--print(MySRefl_TypeInfo.Point.fields.x.attrs.not_serialize)  -- MySRefl field attrs
+--print(MySRefl_TypeInfo.Point.fields.y.attrs.info)           -- MySRefl type attrs
 print(p0:Sum(2))                                           -- non-static member function overload
 print(p0:Min())                                            -- non-static member function overload
 print(p0:Min(-1))                                          -- non-static member function overload
-print(MySRefl_TypeInfo.Point.fields.Min_0.attrs.number)     -- non-static member function overload
-print(MySRefl_TypeInfo.Point.fields.Min_1.attrs.number)     -- non-static member function overload
+--print(MySRefl_TypeInfo.Point.fields.Min_0.attrs.number)     -- non-static member function overload
+--print(MySRefl_TypeInfo.Point.fields.Min_1.attrs.number)     -- non-static member function overload
 p2 = p0:Add(p1)                                            -- usertype argument
 print(p2.x, p2.y)
 p3 = p0 - p1                                               -- meta function

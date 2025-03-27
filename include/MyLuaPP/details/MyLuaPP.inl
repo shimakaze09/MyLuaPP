@@ -14,11 +14,15 @@
 namespace My::MyLuaPP::detail {
 struct NameInfo {
   NameInfo(std::string_view name) {
-    size_t cur = name[0] == 's'   ? 6   // struct
-                 : name[0] == 'c' ? 5   // class
-                                  : 4;  // enum
+    size_t cur = 0;
+    if (name.size() >= 7 && name.substr(0, 7) == "struct ")
+      cur = 7;
+    if (name.size() >= 6 && name.substr(0, 6) == "class ")
+      cur = 6;
+    if (name.size() >= 5 && name.substr(0, 5) == "enum ")
+      cur = 5;
     std::string str;
-    while (++cur < name.size()) {
+    while (cur < name.size()) {
       if (name[cur] == ':') {
         namespaces.push_back(str);
         str.clear();
@@ -27,6 +31,7 @@ struct NameInfo {
         str += name[cur];
       else
         str += '_';
+      cur++;
     }
     rawName = str;
   }
@@ -36,29 +41,32 @@ struct NameInfo {
 };
 
 template <typename T>
-constexpr auto DFS_GetFields() {
-  if constexpr (MySRefl::TypeInfo<T>::bases.size > 0) {
-    return MySRefl::TypeInfo<T>::DFS_Acc(
-        MySRefl::ElemList<>{}, [](auto acc, auto t, size_t) {
-          return t.fields.Accumulate(
-              acc, [](auto acc, auto field) { return acc.Push(field); });
+constexpr auto DFS_GetFuncFieldList() {
+  return MySRefl::TypeInfo<T>::DFS_Acc(
+      MySRefl::ElemList<>{}, [](auto acc, auto t, size_t) {
+        return t.fields.Accumulate(acc, [](auto acc, auto field) {
+          if constexpr (field.is_func)
+            return acc.Push(field);
+          else
+            return acc;
         });
-  } else
-    return MySRefl::TypeInfo<T>::fields;
+      });
 }
 
 template <typename T, size_t... Ns>
 constexpr auto GetInits(std::index_sequence<Ns...>) {
   constexpr auto fields = MySRefl::TypeInfo<T>::fields;
-  constexpr auto masks =
-      fields.Accumulate(std::array<bool, fields.size>{},
-                        [idx = 0](auto&& acc, auto field) mutable {
-                          acc[idx++] = field.name == MySRefl::Name::constructor;
-                          return std::forward<decltype(acc)>(acc);
-                        });
-  constexpr auto constructors = fields.template Accumulate<masks[Ns]...>(
-      std::tuple<>{}, [](auto acc, auto field) {
-        return std::tuple_cat(acc, std::tuple{field.value});
+  constexpr auto constructors =
+      fields.Accumulate(std::tuple<>{}, [](auto acc, auto field) {
+        if constexpr (field.NameIs(TSTR(MyMeta::constructor))) {
+          if constexpr (field.attrs.Contains(TSTR(MyMeta::default_functions)))
+            return std::tuple_cat(
+                acc, std::tuple{field.value},
+                field.attrs.Find(TSTR(MyMeta::default_functions)).value);
+          else
+            return std::tuple_cat(acc, std::tuple{field.value});
+        } else
+          return acc;
       });
   if constexpr (std::tuple_size_v<std::decay_t<decltype(constructors)>> > 0)
     return std::apply([](auto... elems) { return sol::initializers(elems...); },
@@ -69,169 +77,130 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
     return sol::no_constructor;
 }
 
-template <typename T, typename FuncList>
-void SetOverloadFuncs(sol::usertype<T>& type, sol::table& typeinfo_type_fields,
-                      FuncList funclist) {
-  std::apply(
-      [&](auto... funcs) {
-        auto packedFuncs = sol::overload(funcs.value...);
-        auto name = std::get<0>(std::tuple{funcs...}).name;
-        assert(name != "voidp");
-        if (name == "operator+")
-          type[sol::meta_function::addition] = packedFuncs;
-        else if (name == "operator-")
-          type[sol::meta_function::subtraction] = packedFuncs;
-        else if (name == "operator*")
-          type[sol::meta_function::multiplication] = packedFuncs;
-        else if (name == "operator/")
-          type[sol::meta_function::division] = packedFuncs;
-        else if (name == "operator<")
-          type[sol::meta_function::less_than] = packedFuncs;
-        else if (name == "operator<=")
-          type[sol::meta_function::less_than_or_equal_to] = packedFuncs;
-        else if (name == "operator==")
-          type[sol::meta_function::equal_to] = packedFuncs;
-        else if (name == "operator[]")
-          type[sol::meta_function::index] = packedFuncs;
-        else if (name == "operator()")
-          type[sol::meta_function::call] = packedFuncs;
-        else
-          type[name] = packedFuncs;
-        constexpr bool needPostfix = sizeof...(funcs) > 0;
-        MySRefl::ElemList{funcs...}.ForEach([&, idx = static_cast<size_t>(0)](
-                                                auto func) mutable {
-          std::string name = std::string(func.name) +
-                             (needPostfix ? ("_" + std::to_string(idx)) : "");
-          sol::table typeinfo_type_fields_field =
-              typeinfo_type_fields[name].get_or_create<sol::table>();
-          sol::table typeinfo_type_fields_field_attrs =
-              typeinfo_type_fields_field["attrs"].get_or_create<sol::table>();
-          if constexpr (func.attrs.size > 0) {
-            func.attrs.ForEach([&](auto attr) {
-              if constexpr (attr.has_value)
-                typeinfo_type_fields_field_attrs[attr.name] = attr.value;
-              else
-                typeinfo_type_fields_field_attrs[attr.name] = true;  // default
-            });
-          }
-          idx++;
-        });
-      },
-      funclist.elems);
-}
-
-// sizeof...(Ns) is the field number
-template <size_t Index, typename T, size_t... Ns>
-void OptionalSetOverloadFuncs(sol::usertype<T>& type,
-                              sol::table& typeinfo_type_fields,
-                              std::index_sequence<Ns...>) {
+template <size_t Index, typename T, typename FuncFieldList, size_t... Ns>
+void SetOverloadFuncsImpl(sol::usertype<T>& type, FuncFieldList funcFieldList,
+                          std::index_sequence<Ns...> seq) {
   if constexpr (Index != static_cast<size_t>(-1)) {
-    constexpr auto fields = DFS_GetFields<T>();
-    constexpr auto name = fields.template Get<Index>().name;
-    constexpr auto masks =
-        fields.Accumulate(std::array<bool, fields.size>{},
-                          [fields, name, idx = static_cast<size_t>(0)](
-                              auto acc, auto field) mutable {
-                            acc[idx++] = field.name == name;
-                            return acc;
-                          });
-    constexpr auto funclist = fields.template Accumulate<masks[Ns]...>(
-        MySRefl::ElemList<>{},
-        [](auto acc, auto func) { return acc.Push(func); });
-    SetOverloadFuncs(type, typeinfo_type_fields, funclist);
+    using TheFuncField =
+        std::decay_t<decltype(funcFieldList.template Get<Index>())>;
+    using Name = typename TheFuncField::Tag;
+    auto funcs =
+        funcFieldList.Accumulate(std::tuple<>{}, [](auto acc, auto field) {
+          if constexpr (field.template NameIs<Name>()) {
+            if constexpr (field.attrs.Contains(TSTR(MyMeta::default_functions)))
+              return std::tuple_cat(
+                  acc, std::tuple{field.value},
+                  field.attrs.Find(TSTR(MyMeta::default_functions)).value);
+            else
+              return std::tuple_cat(acc, std::tuple{field.value});
+          } else
+            return acc;
+        });
+    auto packedFuncs = std::apply(
+        [](auto... funcs) { return sol::overload(funcs...); }, funcs);
+    constexpr auto name = Name::name;
+    assert(name != "voidp");
+    if (name == "operator+")
+      type[sol::meta_function::addition] = packedFuncs;
+    else if (name == "operator-")
+      type[sol::meta_function::subtraction] = packedFuncs;
+    else if (name == "operator*")
+      type[sol::meta_function::multiplication] = packedFuncs;
+    else if (name == "operator/")
+      type[sol::meta_function::division] = packedFuncs;
+    else if (name == "operator<")
+      type[sol::meta_function::less_than] = packedFuncs;
+    else if (name == "operator<=")
+      type[sol::meta_function::less_than_or_equal_to] = packedFuncs;
+    else if (name == "operator==")
+      type[sol::meta_function::equal_to] = packedFuncs;
+    else if (name == "operator[]")
+      type[sol::meta_function::index] = packedFuncs;
+    else if (name == "operator()")
+      type[sol::meta_function::call] = packedFuncs;
+    else
+      type[name] = packedFuncs;
   }
 }
 
-// sizeof...(Ns) is the field number
-template <typename T, size_t... Ns>
-constexpr auto SetFuncsImpl(sol::usertype<T>& type,
-                            sol::table& typeinfo_type_fields,
-                            std::index_sequence<Ns...>) {
-  constexpr auto fields = DFS_GetFields<T>();
-  constexpr auto names = std::array{fields.template Get<Ns>().name...};
+template <typename List>
+struct OverloadFalgsOf;
 
-  constexpr auto indices =
-      fields.Accumulate(std::array<size_t, fields.size>{},
-                        [fields, names, idx = static_cast<size_t>(0)](
-                            auto acc, auto field) mutable {
-                          if constexpr (field.is_func) {
-                            acc[idx] = idx;
-                            for (size_t i = 0; i < idx; i++) {
-                              if (field.name == names[i] ||
-                                  field.name == MySRefl::Name::constructor ||
-                                  field.name == MySRefl::Name::destructor) {
-                                acc[idx] = static_cast<size_t>(-1);
-                                break;
-                              }
-                            }
-                          } else
-                            acc[idx] = static_cast<size_t>(-1);
+template <typename... Fields>
+struct OverloadFalgsOf<MySRefl::ElemList<Fields...>> {
+  static constexpr auto get() {
+    constexpr auto names = std::array{Fields::name...};
+    constexpr size_t N = sizeof...(Fields);
+    std::array<size_t, N> flags{};
+    for (size_t i = 0; i < N; i++) {
+      flags[i] = i;
+      for (size_t j = 0; j < i; j++) {
+        if (names[j] == names[i]) {
+          flags[i] = static_cast<size_t>(-1);
+          break;
+        }
+      }
+    }
+    return flags;
+  }
+};
 
-                          idx++;
-                          return acc;
-                        });
-  (OptionalSetOverloadFuncs<indices[Ns]>(type, typeinfo_type_fields,
-                                         std::index_sequence<Ns...>{}),
-   ...);
+template <typename T, typename FuncFieldList, size_t... Ns>
+void SetFuncsImpl(sol::usertype<T>& type, FuncFieldList funcFieldList,
+                  std::index_sequence<Ns...> seq) {
+  constexpr auto indices = OverloadFalgsOf<FuncFieldList>::get();
+  (SetOverloadFuncsImpl<indices[Ns]>(type, funcFieldList, seq), ...);
 }
 
 template <typename T>
-constexpr auto SetFuncs(sol::usertype<T>& type,
-                        sol::table& typeinfo_type_fields) {
-  constexpr auto fields = DFS_GetFields<T>();
-  return SetFuncsImpl(type, typeinfo_type_fields,
-                      std::make_index_sequence<fields.size>());
+void SetFuncs(sol::usertype<T>& type) {
+  constexpr auto funcFieldList = DFS_GetFuncFieldList<T>();
+  if constexpr (funcFieldList.size > 0)
+    SetFuncsImpl(type, funcFieldList,
+                 std::make_index_sequence<funcFieldList.size>());
 }
 
 template <typename T>
 void RegisterClass(lua_State* L) {
   sol::state_view lua(L);
-  sol::table typeinfo = lua["MySRefl_TypeInfo"].get_or_create<sol::table>();
+
   NameInfo nameInfo(MySRefl::TypeInfo<T>::name);
 
-  sol::usertype<T> type = lua.new_usertype<T>(
-      nameInfo.rawName,
-      GetInits<T>(
-          std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>{}));
+  sol::usertype<T> type;
+  if (nameInfo.namespaces.empty()) {
+    type = lua.new_usertype<T>(
+        nameInfo.rawName,
+        GetInits<T>(
+            std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>{}));
+  } else {
+    sol::table nsTable =
+        lua[nameInfo.namespaces.front()].get_or_create<sol::table>();
+    for (size_t i = 1; i < nameInfo.namespaces.size(); i++)
+      nsTable = nsTable[nameInfo.namespaces[i]].get_or_create<sol::table>();
+    type = nsTable.new_usertype<T>(
+        nameInfo.rawName,
+        GetInits<T>(
+            std::make_index_sequence<MySRefl::TypeInfo<T>::fields.size>{}));
+  }
 
   // set void* cast
   type["voidp"] = [](void* p) {
-    return (T*)p;
+    return static_cast<T*>(p);
   };
 
-  sol::table typeinfo_type =
-      typeinfo[nameInfo.rawName].get_or_create<sol::table>();
-  sol::table typeinfo_type_attrs =
-      typeinfo_type["attrs"].get_or_create<sol::table>();
-  sol::table typeinfo_type_fields =
-      typeinfo_type["fields"].get_or_create<sol::table>();
-  MySRefl::TypeInfo<T>::attrs.ForEach([&](auto attr) {
-    if constexpr (attr.has_value)
-      typeinfo_type_attrs[attr.name] = attr.value;
-    else
-      typeinfo_type_attrs[attr.name] = true;  // default
-  });
-
-  SetFuncs(type, typeinfo_type_fields);
+  SetFuncs(type);
 
   // variable
   MySRefl::TypeInfo<T>::DFS_ForEach([&](auto t, size_t) {
     t.fields.ForEach([&](auto field) {
       if constexpr (!field.is_func) {
-        type[field.name] = field.value;
-
-        sol::table typeinfo_type_fields_field =
-            typeinfo_type_fields[field.name].get_or_create<sol::table>();
-        sol::table typeinfo_type_fields_field_attrs =
-            typeinfo_type_fields_field["attrs"].get_or_create<sol::table>();
-        if constexpr (field.attrs.size > 0) {
-          field.attrs.ForEach([&](auto attr) {
-            if constexpr (attr.has_value)
-              typeinfo_type_fields_field_attrs[attr.name] = attr.value;
-            else
-              typeinfo_type_fields_field_attrs[attr.name] = true;  // default
-          });
-        }
+        using Value = std::decay_t<decltype(field.value)>;
+        if constexpr (std::is_member_object_pointer_v<Value>)
+          type[field.name] = field.value;
+        else if constexpr (std::is_pointer_v<Value>)
+          type[field.name] = sol::var(std::ref(*field.value));
+        else
+          type[field.name] = sol::property([v = field.value]() { return v; });
       }
     });
   });
@@ -241,34 +210,6 @@ template <typename T>
 void RegisterEnum(lua_State* L) {
   sol::state_view lua(L);
   NameInfo nameInfo(MySRefl::TypeInfo<T>::name);
-  sol::table typeinfo = lua["MySRefl_TypeInfo"].get_or_create<sol::table>();
-  sol::table typeinfo_enum =
-      typeinfo[nameInfo.rawName].get_or_create<sol::table>();
-  sol::table typeinfo_enum_attrs =
-      typeinfo_enum["attrs"].get_or_create<sol::table>();
-  sol::table typeinfo_enum_fields =
-      typeinfo_enum["fields"].get_or_create<sol::table>();
-
-  MySRefl::TypeInfo<T>::attrs.ForEach([&](auto attr) {
-    if constexpr (attr.has_value)
-      typeinfo_enum_attrs[attr.name] = attr.value;
-    else
-      typeinfo_enum_attrs[attr.name] = true;  // default
-  });
-
-  MySRefl::TypeInfo<T>::fields.ForEach([&](auto field) {
-    sol::table typeinfo_enum_fields_field =
-        typeinfo_enum_fields[field.name].get_or_create<sol::table>();
-    sol::table typeinfo_type_fields_field_attrs =
-        typeinfo_enum_fields_field["attrs"].get_or_create<sol::table>();
-    field.attrs.ForEach([&](auto attr) {
-      if constexpr (attr.has_value)
-        typeinfo_type_fields_field_attrs[attr.name] = attr.value;
-      else
-        typeinfo_type_fields_field_attrs[attr.name] = true;  // default
-    });
-  });
-
   constexpr auto nvs = MySRefl::TypeInfo<T>::fields.Accumulate(
       std::tuple<>{}, [](auto acc, auto field) {
         return std::tuple_cat(acc, std::tuple{field.name, field.value});
