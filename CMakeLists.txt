@@ -8,7 +8,7 @@ INIT_MYCMAKE()
 
 INIT_PROJECT()
 
-ADD_DEP(MyLua 0.1.1)
+ADD_DEP(MyLua 0.1.2)
 ADD_DEP(MySRefl 0.7.1)
 ADD_DEP(MyTemplate 0.4.9)
 
