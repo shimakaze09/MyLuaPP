@@ -13,4 +13,6 @@ ADD_TARGET(
         LIB
         My::MySRefl_core
         My::MyLua_core
+        My::MyTemplate_core
+        My::MySTL_core
 )

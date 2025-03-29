@@ -5,6 +5,8 @@
 #pragma once
 
 #include <MySRefl/MySRefl.h>
+#include <MySTL/tuple.h>
+#include <MyTemplate/Func.h>
 
 #include <array>
 #include <string>
@@ -40,14 +42,22 @@ struct NameInfo {
   std::string rawName;
 };
 
+template <typename ArgList>
+static constexpr bool ContainsRVRef =
+    Length_v<Filter_t<ArgList, std::is_rvalue_reference>> > 0;
+
 template <typename T>
 constexpr auto DFS_GetFuncFieldList() {
   return MySRefl::TypeInfo<T>::DFS_Acc(
       MySRefl::ElemList<>{}, [](auto acc, auto t, size_t) {
         return t.fields.Accumulate(acc, [](auto acc, auto field) {
-          if constexpr (field.is_func)
-            return acc.Push(field);
-          else
+          if constexpr (field.is_func) {
+            using Func = std::decay_t<decltype(field.value)>;
+            if constexpr (!ContainsRVRef<FuncTraits_ArgList<Func>>)
+              return acc.Push(field);
+            else
+              return acc;
+          } else
             return acc;
         });
       });
@@ -59,12 +69,26 @@ constexpr auto GetInits(std::index_sequence<Ns...>) {
   constexpr auto constructors =
       fields.Accumulate(std::tuple<>{}, [](auto acc, auto field) {
         if constexpr (field.NameIs(TSTR(MyMeta::constructor))) {
-          if constexpr (field.attrs.Contains(TSTR(MyMeta::default_functions)))
-            return std::tuple_cat(
-                acc, std::tuple{field.value},
-                field.attrs.Find(TSTR(MyMeta::default_functions)).value);
-          else
-            return std::tuple_cat(acc, std::tuple{field.value});
+          using MainFunc = std::decay_t<decltype(field.value)>;
+          if constexpr (!ContainsRVRef<FuncTraits_ArgList<MainFunc>>) {
+            auto rst = MySTL::tuple_append(acc, field.value);
+            if constexpr (field.attrs.Contains(
+                              TSTR(MyMeta::default_functions))) {
+              const auto& defaultFuncs =
+                  field.attrs.Find(TSTR(MyMeta::default_functions)).value;
+              auto new_rst = MySTL::tuple_accumulate(
+                  defaultFuncs, rst, [](auto acc, auto func) {
+                    using Func = std::decay_t<decltype(func)>;
+                    if constexpr (ContainsRVRef<FuncTraits_ArgList<Func>>)
+                      return acc;
+                    else
+                      return MySTL::tuple_append(acc, func);
+                  });
+              return new_rst;
+            } else
+              return rst;
+          } else
+            return acc;
         } else
           return acc;
       });
@@ -84,18 +108,31 @@ void SetOverloadFuncsImpl(sol::usertype<T>& type, FuncFieldList funcFieldList,
     using TheFuncField =
         std::decay_t<decltype(funcFieldList.template Get<Index>())>;
     using Name = typename TheFuncField::Tag;
-    auto funcs =
-        funcFieldList.Accumulate(std::tuple<>{}, [](auto acc, auto field) {
-          if constexpr (field.template NameIs<Name>()) {
-            if constexpr (field.attrs.Contains(TSTR(MyMeta::default_functions)))
-              return std::tuple_cat(
-                  acc, std::tuple{field.value},
-                  field.attrs.Find(TSTR(MyMeta::default_functions)).value);
-            else
-              return std::tuple_cat(acc, std::tuple{field.value});
+    auto funcs = funcFieldList.Accumulate(std::tuple<>{}, [](auto acc,
+                                                             auto field) {
+      if constexpr (field.template NameIs<Name>()) {
+        using MainFunc = std::decay_t<decltype(field.value)>;
+        if constexpr (!ContainsRVRef<FuncTraits_ArgList<MainFunc>>) {
+          auto rst = MySTL::tuple_append(acc, field.value);
+          if constexpr (field.attrs.Contains(TSTR(MyMeta::default_functions))) {
+            const auto& defaultFuncs =
+                field.attrs.Find(TSTR(MyMeta::default_functions)).value;
+            auto new_rst = MySTL::tuple_accumulate(
+                defaultFuncs, rst, [](auto acc, auto func) {
+                  using Func = std::decay_t<decltype(func)>;
+                  if constexpr (ContainsRVRef<FuncTraits_ArgList<Func>>)
+                    return acc;
+                  else
+                    return MySTL::tuple_append(acc, func);
+                });
+            return new_rst;
           } else
-            return acc;
-        });
+            return rst;
+        } else
+          return acc;
+      } else
+        return acc;
+    });
     auto packedFuncs = std::apply(
         [](auto... funcs) { return sol::overload(funcs...); }, funcs);
     constexpr auto name = Name::name;
