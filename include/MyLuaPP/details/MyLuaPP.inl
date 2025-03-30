@@ -13,6 +13,26 @@
 
 #include <sol/sol.hpp>
 
+namespace My {
+template <typename Elem, size_t Extent>
+class Span;
+}  // namespace My
+
+namespace sol::stack {
+template <typename Elem, size_t Extent>
+struct unqualified_getter<nested<My::Span<Elem, Extent>>> {
+  using T = My::Span<Elem, Extent>;
+
+  static T get(lua_State* L, int index, record& tracking) {
+    using Tu = meta::unqualified_t<T>;
+    unqualified_getter<Tu> g;
+    // VC++ has a bad warning here: shut it up
+    (void)g;
+    return g.get(L, index, tracking);
+  }
+};
+}  // namespace sol::stack
+
 namespace My::MyLuaPP::detail {
 struct NameInfo {
   NameInfo(std::string_view name) {
