@@ -14,6 +14,7 @@ struct Point {
   float x;
   float y;
 };
+enum class Color { RED, GREEN, BLUE };
 }  // namespace Test
 
 template <>
@@ -28,12 +29,26 @@ struct My::MySRefl::TypeInfo<Test::Point> : TypeInfoBase<Test::Point> {
   };
 };
 
+template <>
+struct My::MySRefl::TypeInfo<Test::Color> : TypeInfoBase<Test::Color> {
+#ifdef MY_MYSREFL_NOT_USE_NAMEOF
+  static constexpr char name[12] = "Test::Color";
+#endif
+  static constexpr AttrList attrs = {};
+  static constexpr FieldList fields = {
+      Field{TSTR("RED"), Type::RED},
+      Field{TSTR("GREEN"), Type::GREEN},
+      Field{TSTR("BLUE"), Type::BLUE},
+  };
+};
+
 int main() {
   char buff[256];
   int error;
   lua_State* L = luaL_newstate(); /* opens Lua */
   luaL_openlibs(L);               /* opens the standard libraries */
   My::MyLuaPP::Register<Test::Point>(L);
+  My::MyLuaPP::Register<Test::Color>(L);
   {
     sol::state_view lua(L);
     const char code[] = R"(
@@ -41,6 +56,7 @@ int main() {
  p.x = 1
  p.y = 2
  print(p.x, p.y)
+ print(Test.Color.RED)
  )";
     cout << code << endl << "----------------------------" << endl;
     lua.safe_script(code);
